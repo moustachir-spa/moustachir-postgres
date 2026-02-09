@@ -1,0 +1,32 @@
+# Docker
+.docker/
+docker-compose.override.yml
+
+# PostgreSQL
+pgdata/
+*.pid
+*.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+.AppleDouble
+.LSOverride
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+__pycache__/

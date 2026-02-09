@@ -45,7 +45,7 @@ docker exec -it moustachir-postgres psql -U postgres -c "SELECT * FROM pg_availa
 
 ```bash
 # Build the image
-docker build -t moustachir/postgres:18 .
+docker build -t moustachir/postgres:18.1 .
 
 # Run the container
 docker run -d \
@@ -53,7 +53,7 @@ docker run -d \
   -e POSTGRES_PASSWORD=changeme \
   -p 5432:5432 \
   --shm-size=256mb \
-  moustachir/postgres:18
+  moustachir/postgres:18.1
 ```
 
 ---
@@ -88,7 +88,7 @@ Override at build time:
 ```bash
 docker build \
   --build-arg PGVECTOR_VERSION=0.8.1 \
-  -t moustachir/postgres:18 .
+  -t moustachir/postgres:18.1 .
 ```
 
 ---
@@ -170,7 +170,7 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/moustachir-postgres:18
+            ghcr.io/${{ github.repository_owner }}/moustachir-postgres:18.1
             ghcr.io/${{ github.repository_owner }}/moustachir-postgres:latest
 ```
 
@@ -288,7 +288,7 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: YOUR_REGISTRY/moustachir-postgres:18
+          image: YOUR_REGISTRY/moustachir-postgres:18.1
           ports:
             - containerPort: 5432
           env:
