@@ -30,3 +30,8 @@ build/
 dist/
 *.egg-info/
 __pycache__/
+
+# Security scan caches (see SECURITY.md)
+.trivycache/
+trivy-*.json
+trivy-*.err

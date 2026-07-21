@@ -38,14 +38,15 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |\n            type=ref,event=branch
+          tags: |
+            type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
@@ -54,4 +55,5 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            PGVECTOR_VERSION=0.8.1
+            PGVECTOR_VERSION=0.8.5
+            POSTGIS_VERSION=3.5.7

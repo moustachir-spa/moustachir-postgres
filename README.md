@@ -1,6 +1,6 @@
 # Moustachir PostgreSQL
 
-A production-ready PostgreSQL 18 Docker image with the most popular extensions pre-installed and auto-enabled for all databases.
+A production-ready PostgreSQL 18.4 Docker image with the most popular extensions pre-installed and auto-enabled for all databases. Built on Debian Bookworm, with every external extension pinned to a specific release tag and built from source for reproducibility and auditability.
 
 ## Included Extensions
 
@@ -9,10 +9,10 @@ A production-ready PostgreSQL 18 Docker image with the most popular extensions p
 | **plpgsql** | Procedural language (built-in) |
 | **pg_stat_statements** | Query performance monitoring |
 | **uuid-ossp** | UUID generation (v1, v4, v5) |
-| **pgvector** | Vector similarity search (AI/ML embeddings) |
+| **pgvector** | Vector similarity search (AI/ML embeddings) — v0.8.5 |
 | **pgcrypto** | Cryptographic functions (hashing, encryption) |
 | **pg_trgm** | Trigram-based fuzzy text search |
-| **PostGIS** | Geospatial data types and functions |
+| **PostGIS** | Geospatial data types and functions — v3.5.7 |
 | **citext** | Case-insensitive text type |
 | **unaccent** | Accent/diacritic stripping for text search |
 | **hstore** | Key-value store in a single column |
@@ -44,16 +44,16 @@ docker exec -it moustachir-postgres psql -U postgres -c "SELECT * FROM pg_availa
 ### Or with `docker run`:
 
 ```bash
-# Build the image
-docker build -t moustachir/postgres:18.1 .
+  # Build the image
+  docker build -t moustachir/postgres:18.4 .
 
-# Run the container
-docker run -d \
-  --name moustachir-postgres \
-  -e POSTGRES_PASSWORD=changeme \
-  -p 5432:5432 \
-  --shm-size=256mb \
-  moustachir/postgres:18.1
+  # Run the container
+  docker run -d \
+    --name moustachir-postgres \
+    -e POSTGRES_PASSWORD=changeme \
+    -p 5432:5432 \
+    --shm-size=256mb \
+    moustachir/postgres:18.4
 ```
 
 ---
@@ -86,14 +86,164 @@ CREATE DATABASE myapp;
 Override at build time:
 
 ```bash
-docker build \
-  --build-arg PGVECTOR_VERSION=0.8.1 \
-  -t moustachir/postgres:18.1 .
+  docker build \
+    --build-arg PGVECTOR_VERSION=0.8.5 \
+    --build-arg POSTGIS_VERSION=3.5.7 \
+    -t moustachir/postgres:18.4 .
 ```
 
 ---
 
-# Hosting Guide
+# Updating the running image in Dokploy
+
+Dokploy supports per-database custom images (Advanced → Custom Docker Image) and persistent volumes (Advanced → Volumes). This means you can swap the image your existing Postgres database runs from without losing data, by recreating the container — Dokploy keeps the named volume mounted.
+
+> ⚠️ **Always take a backup first.** Postgres major-version upgrades (18.1 → 18.4 here are a *minor* upgrade within the same major, so the on-disk data format is compatible) are safe to do by simply restarting on the new image. Still, snapshots are cheap.
+
+## Step 1 — Build and push the new image to a registry Dokploy can pull
+
+```bash
+# Tag and push to Docker Hub
+docker build \
+  --build-arg PGVECTOR_VERSION=0.8.5 \
+  --build-arg POSTGIS_VERSION=3.5.7 \
+  -t jesuph/moustachir-postgres:18.4.0 \
+  -t jesuph/moustachir-postgres:18.4 \
+  -t jesuph/moustachir-postgres:latest \
+  .
+
+docker push jesuph/moustachir-postgres:18.4.0
+docker push jesuph/moustachir-postgres:18.4
+docker push jesuph/moustachir-postgres:latest
+```
+
+(Or use the `push-to-registry.sh` / `push-to-registry.ps1` helper in this repo.)
+
+## Step 2 — In Dokploy, point your database at the new image
+
+1. Open Dokploy → **Databases** → your PostgreSQL service.
+2. Go to the **Advanced** tab → **Custom Docker Image**.
+3. Replace the old image (`jesuph/moustachir-postgres:18.1`) with the new one
+   (`jesuph/moustachir-postgres:18.4` — use the rolling tag, not the patched
+   `18.4.0`, so future rebuilds auto-pick up).
+4. In the same **Advanced** tab → **Volumes**, confirm a volume is mounted at
+   `/var/lib/postgresql` (Dokploy's default Postgres template does this).
+   **Do not proceed if it's empty or absent** — add the volume first and
+   verify the data is there before swapping the image.
+5. Click **Deploy** / **Restart**. Dokploy recreates the container on the
+   new image, re-mounts the same volume, and Postgres starts against the
+   existing data directory. **Your data is preserved** because:
+
+   - Postgres 18.1 → 18.4 is a *minor* upgrade within the same major
+     version, so the on-disk data format is fully compatible — no
+     `pg_upgrade`, no dump/restore, no DB downtime beyond the container
+     recreate (typically 2–5 seconds).
+   - The volume is the source of truth; only the container OS + binaries
+     get replaced.
+
+## Step 3 — Backfill extensions in existing databases
+
+⚠️ **This step is required because the init script only runs once, on first
+volume init.** Your existing Dokploy Postgres volume already has a populated
+`PGDATA`, so swapping the image does **not** re-run
+`/docker-entrypoint-initdb.d/00-create-extensions.sh`. That means:
+
+- Databases that already exist **before** the swap keep whatever
+  extensions they had — they will *not* automatically pick up the new
+  `vector 0.8.5` / `postgis 3.5.7` if they were missing or older.
+- `template1` is also already populated, so `CREATE DATABASE foo` *after
+  the swap* will inherit whatever `template1` had before — which may be
+  the old set.
+- New **default** extensions shipped by 18.4 (vs 18.1) like
+  `pg_stat_statements 1.12` may be available but not installed in any
+  existing DB.
+
+The fix is the idempotent helper file [`initdb/01-ensure-extensions.sql`](initdb/01-ensure-extensions.sql)
+in this repo. Run it once against **every existing database** in the
+swapped container, including `template1`:
+
+```bash
+# Find your container name in Dokploy (Databases → your service → General)
+CONTAINER=jesuph-postgres   # adjust to your actual container name
+
+# list existing databases
+docker exec -it "$CONTAINER" psql -U postgres -c "\l"
+
+# backfill extensions in template1 (so FUTURE databases inherit them)
+docker exec -i "$CONTAINER" psql -U postgres -d template1 \
+  < initdb/01-ensure-extensions.sql
+
+# backfill extensions in every existing user database
+# (repeat the one-liner below for each DB you care about)
+for db in moustachir_v3 moustachir_<your_app_db> postgres; do
+  echo "== backfilling: $db =="
+  docker exec -i "$CONTAINER" psql -U postgres -d "$db" \
+    < initdb/01-ensure-extensions.sql
+done
+```
+
+The helper is pure `CREATE EXTENSION IF NOT EXISTS …` — it's **safe to run
+multiple times**, on databases that already have the extensions (no-op)
+and on freshly-created ones alike. It will also bring up to date any
+extension bump that ships with the new PG (e.g. `uuid-ossp 1.1 → 1.1`,
+`pgcrypto 1.4 → 1.4` — no version drift). For an *extension major
+upgrade* (e.g. PostGIS 3.4 → 3.5.7 in the same DB), run
+`ALTER EXTENSION postgis UPDATE;` separately inside that DB.
+
+## Step 4 — Verify
+
+```bash
+# Confirm the new server version
+docker exec -it "$CONTAINER" psql -U postgres -c "SHOW server_version;"
+#  → 18.4 (Debian 18.4-1.pgdg12+1)
+
+# Confirm extensions in every DB you backfilled
+docker exec -it "$CONTAINER" psql -U postgres -c "
+  SELECT extname, extversion FROM pg_extension ORDER BY extname;"
+#  → postgis 3.5.7, vector 0.8.5, pg_stat_statements 1.12, ...
+docker exec -it "$CONTAINER" psql -U postgres -c "SELECT PostGIS_Version();"
+#  → 3.5 USE_GEOS=1 USE_PROJ=1 USE_STATS=1
+
+# Confirm a brand-new database auto-inherits all extensions
+docker exec -it "$CONTAINER" psql -U postgres -c "CREATE DATABASE smoke_db;"
+docker exec -it "$CONTAINER" psql -U postgres -d smoke_db -c "\dx"
+#  → 10 rows: citext, hstore, pg_stat_statements, pg_trgm, pgcrypto,
+#            plpgsql, postgis, unaccent, uuid-ossp, vector
+docker exec -it "$CONTAINER" psql -U postgres -c "DROP DATABASE smoke_db;"
+```
+
+## Rollback (if anything is wrong)
+
+In Dokploy → Advanced → Custom Docker Image, set the value back to
+`jesuph/moustachir-postgres:18.1` and redeploy. Because the volume is the
+source of truth and the PG data format is compatible within the 18.x line,
+Postgres will start again on the old image against the same data directory.
+The `CREATE EXTENSION IF NOT EXISTS` calls from Step 3 are also safe to
+leave in place — they don't downgrade anything.
+
+## Notes on data persistence in Dokploy
+
+Confirmed against the official Dokploy docs (`docs.dokploy.com/docs/core/databases`):
+
+- The **Advanced** tab of every database service exposes:
+  - **Custom Docker Image** — replaces the image the container runs.
+  - **Volumes** — configures persistent storage so data survives container
+    recreation/redeploy.
+- The default Postgres template in Dokploy *does* mount a named volume
+  for `/var/lib/postgresql`, so data is persistent by default — but if you
+  or someone else ever edited the volume mapping, verify before swapping
+  the image.
+- If for any reason you suspect data loss, **stop** and check:
+  ```bash
+  docker inspect <postgres-container-name> --format '{{ json .Mounts }}'
+  ```
+  There must be a mount with `Destination: /var/lib/postgresql` (or
+  `/var/lib/postgresql/data`) bound to a named volume, not a fresh anonymous
+  one.
+
+---
+
+
 
 ## Option 1: Docker Hub (Public/Private Registry)
 
@@ -170,7 +320,7 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/moustachir-postgres:18.1
+            ghcr.io/${{ github.repository_owner }}/moustachir-postgres:18.4
             ghcr.io/${{ github.repository_owner }}/moustachir-postgres:latest
 ```
 
@@ -288,7 +438,7 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: YOUR_REGISTRY/moustachir-postgres:18.1
+          image: YOUR_REGISTRY/moustachir-postgres:18.4
           ports:
             - containerPort: 5432
           env:

@@ -32,16 +32,24 @@ switch ($choice) {
         docker login -u "$dockerhub_user"
         
         Write-Host "Building image..." -ForegroundColor Yellow
-        docker build -t "$dockerhub_user/moustachir-postgres:18.1" .
+        docker build `
+            --build-arg PGVECTOR_VERSION=0.8.5 `
+            --build-arg POSTGIS_VERSION=3.5.7 `
+            -t "$dockerhub_user/moustachir-postgres:18.4.0" `
+            -t "$dockerhub_user/moustachir-postgres:18.4" `
+            -t "$dockerhub_user/moustachir-postgres:latest" `
+            .
         
         Write-Host "Pushing to Docker Hub..." -ForegroundColor Yellow
-        docker push "$dockerhub_user/moustachir-postgres:18.1"
+        docker push "$dockerhub_user/moustachir-postgres:18.4.0"
+        docker push "$dockerhub_user/moustachir-postgres:18.4"
+        docker push "$dockerhub_user/moustachir-postgres:latest"
         
         Write-Host ""
         Write-Host "✅ Success! Image pushed to: https://hub.docker.com/r/$dockerhub_user/moustachir-postgres" -ForegroundColor Green
         Write-Host ""
         Write-Host "To pull it later:" -ForegroundColor Yellow
-        Write-Host "  docker pull $dockerhub_user/moustachir-postgres:18.1" -ForegroundColor White
+        Write-Host "  docker pull $dockerhub_user/moustachir-postgres:18.4" -ForegroundColor White
     }
     
     "2" {
@@ -71,16 +79,24 @@ switch ($choice) {
             $github_token | docker login ghcr.io -u "$github_user" --password-stdin
             
             Write-Host "Building image..." -ForegroundColor Yellow
-            docker build -t "ghcr.io/$github_user/moustachir-postgres:18.1" .
+            docker build `
+                --build-arg PGVECTOR_VERSION=0.8.5 `
+                --build-arg POSTGIS_VERSION=3.5.7 `
+                -t "ghcr.io/$github_user/moustachir-postgres:18.4.0" `
+                -t "ghcr.io/$github_user/moustachir-postgres:18.4" `
+                -t "ghcr.io/$github_user/moustachir-postgres:latest" `
+                .
             
             Write-Host "Pushing to GitHub Container Registry..." -ForegroundColor Yellow
-            docker push "ghcr.io/$github_user/moustachir-postgres:18.1"
+            docker push "ghcr.io/$github_user/moustachir-postgres:18.4.0"
+            docker push "ghcr.io/$github_user/moustachir-postgres:18.4"
+            docker push "ghcr.io/$github_user/moustachir-postgres:latest"
             
             Write-Host ""
             Write-Host "✅ Success! Image pushed to: ghcr.io/$github_user/moustachir-postgres" -ForegroundColor Green
             Write-Host ""
             Write-Host "To pull it later:" -ForegroundColor Yellow
-            Write-Host "  docker pull ghcr.io/$github_user/moustachir-postgres:18.1" -ForegroundColor White
+            Write-Host "  docker pull ghcr.io/$github_user/moustachir-postgres:18.4" -ForegroundColor White
         }
     }
     

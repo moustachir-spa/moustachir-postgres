@@ -35,16 +35,24 @@ case $choice in
     echo "$dockerhub_pass" | docker login -u "$dockerhub_user" --password-stdin
     
     echo "Building image..."
-    docker build -t "$dockerhub_user/moustachir-postgres:18.1" .
-    
+    docker build \
+      --build-arg PGVECTOR_VERSION=0.8.5 \
+      --build-arg POSTGIS_VERSION=3.5.7 \
+      -t "$dockerhub_user/moustachir-postgres:18.4.0" \
+      -t "$dockerhub_user/moustachir-postgres:18.4" \
+      -t "$dockerhub_user/moustachir-postgres:latest" \
+      .
+
     echo "Pushing to Docker Hub..."
-    docker push "$dockerhub_user/moustachir-postgres:18.1"
-    
+    docker push "$dockerhub_user/moustachir-postgres:18.4.0"
+    docker push "$dockerhub_user/moustachir-postgres:18.4"
+    docker push "$dockerhub_user/moustachir-postgres:latest"
+
     echo ""
     echo "✅ Success! Image pushed to: https://hub.docker.com/r/$dockerhub_user/moustachir-postgres"
     echo ""
     echo "To pull it later:"
-    echo "  docker pull $dockerhub_user/moustachir-postgres:18.1"
+    echo "  docker pull $dockerhub_user/moustachir-postgres:18.4"
     ;;
     
   2)
@@ -74,16 +82,24 @@ case $choice in
       echo "$github_token" | docker login ghcr.io -u "$github_user" --password-stdin
       
       echo "Building image..."
-      docker build -t "ghcr.io/$github_user/moustachir-postgres:18.1" .
+      docker build \
+        --build-arg PGVECTOR_VERSION=0.8.5 \
+        --build-arg POSTGIS_VERSION=3.5.7 \
+        -t "ghcr.io/$github_user/moustachir-postgres:18.4.0" \
+        -t "ghcr.io/$github_user/moustachir-postgres:18.4" \
+        -t "ghcr.io/$github_user/moustachir-postgres:latest" \
+        .
       
       echo "Pushing to GitHub Container Registry..."
-      docker push "ghcr.io/$github_user/moustachir-postgres:18.1"
+      docker push "ghcr.io/$github_user/moustachir-postgres:18.4.0"
+      docker push "ghcr.io/$github_user/moustachir-postgres:18.4"
+      docker push "ghcr.io/$github_user/moustachir-postgres:latest"
       
       echo ""
       echo "✅ Success! Image pushed to: ghcr.io/$github_user/moustachir-postgres"
       echo ""
       echo "To pull it later:"
-      echo "  docker pull ghcr.io/$github_user/moustachir-postgres:18.1"
+      echo "  docker pull ghcr.io/$github_user/moustachir-postgres:18.4"
     fi
     ;;
     
