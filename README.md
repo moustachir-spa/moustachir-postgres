@@ -1,6 +1,6 @@
 # Moustachir PostgreSQL
 
-A production-ready PostgreSQL 18.4 Docker image with the most popular extensions pre-installed and auto-enabled for all databases. Built on Debian Bookworm, with every external extension pinned to a specific release tag and built from source for reproducibility and auditability.
+A production-ready PostgreSQL 18.4 Docker image with the most popular extensions pre-installed and auto-enabled for all databases. Built on Debian Trixie (13, current Debian stable), with every external extension pinned to a specific release tag and built from source for reproducibility and auditability.
 
 ## Included Extensions
 
@@ -89,6 +89,8 @@ Override at build time:
   docker build \
     --build-arg PGVECTOR_VERSION=0.8.5 \
     --build-arg POSTGIS_VERSION=3.5.7 \
+    --build-arg GOSU_VERSION=1.19 \
+    --build-arg GDAL_VERSION=3.13.1 \
     -t moustachir/postgres:18.4 .
 ```
 
@@ -107,12 +109,14 @@ Dokploy supports per-database custom images (Advanced → Custom Docker Image) a
 docker build \
   --build-arg PGVECTOR_VERSION=0.8.5 \
   --build-arg POSTGIS_VERSION=3.5.7 \
-  -t jesuph/moustachir-postgres:18.4.0 \
+  --build-arg GOSU_VERSION=1.19 \
+  --build-arg GDAL_VERSION=3.13.1 \
+  -t jesuph/moustachir-postgres:18.4.3 \
   -t jesuph/moustachir-postgres:18.4 \
   -t jesuph/moustachir-postgres:latest \
   .
 
-docker push jesuph/moustachir-postgres:18.4.0
+docker push jesuph/moustachir-postgres:18.4.3
 docker push jesuph/moustachir-postgres:18.4
 docker push jesuph/moustachir-postgres:latest
 ```
@@ -125,7 +129,7 @@ docker push jesuph/moustachir-postgres:latest
 2. Go to the **Advanced** tab → **Custom Docker Image**.
 3. Replace the old image (`jesuph/moustachir-postgres:18.1`) with the new one
    (`jesuph/moustachir-postgres:18.4` — use the rolling tag, not the patched
-   `18.4.0`, so future rebuilds auto-pick up).
+   `18.4.3`, so future rebuilds auto-pick up).
 4. In the same **Advanced** tab → **Volumes**, confirm a volume is mounted at
    `/var/lib/postgresql` (Dokploy's default Postgres template does this).
    **Do not proceed if it's empty or absent** — add the volume first and

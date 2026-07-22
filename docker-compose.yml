@@ -6,7 +6,9 @@ services:
       args:
         PGVECTOR_VERSION: "0.8.5"
         POSTGIS_VERSION: "3.5.7"
-    image: moustachir/postgres:18.4.0
+        GOSU_VERSION: "1.19"
+        GDAL_VERSION: "3.13.1"
+    image: moustachir/postgres:18.4.3
     container_name: moustachir-postgres
     environment:
       POSTGRES_USER: postgres
