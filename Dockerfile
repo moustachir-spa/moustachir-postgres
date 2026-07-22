@@ -139,8 +139,7 @@ RUN apk update && apk add --no-cache \
         pkgconf \
         libxslt \
         docbook-xml \
-    ; \
-    ldconfig
+    && ldconfig
 
 ##############################################
 # Build pgvector (pinned tag)
