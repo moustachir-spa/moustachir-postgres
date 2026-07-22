@@ -57,5 +57,4 @@ jobs:
           build-args: |
             PGVECTOR_VERSION=0.8.5
             POSTGIS_VERSION=3.5.7
-            GOSU_VERSION=1.19
             GDAL_VERSION=3.13.1

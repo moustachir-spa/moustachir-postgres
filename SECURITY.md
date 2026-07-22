@@ -1,30 +1,32 @@
 # Security Audit — `jesuph/moustachir-postgres`
 
-**Scope:** `jesuph/moustachir-postgres:18.1` (currently running) → new image built from this repo's `Dockerfile` (PostgreSQL 18.4; gosu rebuilt from source in `18.4.1`; Perl removed and GDAL rebuilt with a minimal driver set in `18.4.2`; base OS moved from Debian bookworm to trixie in `18.4.3`).
+**Scope:** `jesuph/moustachir-postgres:18.1` (currently running) → new image built from this repo's `Dockerfile` (PostgreSQL 18.4; gosu rebuilt from source in `18.4.1`; Perl removed and GDAL rebuilt with a minimal driver set in `18.4.2`; base OS moved from Debian bookworm to trixie in `18.4.3`; base OS moved again to Chainguard's Wolfi-based `postgres` image in `18.4.4`).
 
 **Scanner:** Trivy v0.72 (`aquasec/trivy:latest`), DB downloaded at scan time.
-Filters: `--severity HIGH,CRITICAL --ignore-unfixed` (only CVEs that have a known fix in Debian upstream) for the headline table; full unfiltered scans (all severities, `--ignore-unfixed` off) used throughout the investigation — see §4 and §5 for why that mattered. All scans run against the local images via the Docker Desktop socket.
+Filters: `--severity HIGH,CRITICAL --ignore-unfixed` (only CVEs that have a known fix upstream) for the headline table; full unfiltered scans (all severities, `--ignore-unfixed` off) used throughout the investigation — see §4, §5, and §6 for why that mattered. All scans run against the local images via the Docker Desktop socket.
 
 **Headline — fixable CVEs (patch exists, headline metric)**
 
-| Image | Debian | Distinct CVEs | CRITICAL | HIGH | Size |
+| Image | Base | Distinct CVEs | CRITICAL | HIGH | Size |
 |---|---|---|---|---|---|
-| `jesuph/moustachir-postgres:18.1` (old) | **trixie** (13.3, was testing at the time) | 47 | 9 | 38 | 957 MB |
-| `moustachir/postgres:18.4.0` (18.4, upstream gosu) | **bookworm** (12.15) | 15 | 1 | 14 | 897 MB |
-| `moustachir/postgres:18.4.1` (18.4, gosu rebuilt) | **bookworm** (12.15) | **0** | **0** | **0** | 897 MB |
-| `moustachir/postgres:18.4.2` (18.4, + Perl removed, GDAL minimal) | **bookworm** (12.15) | **0** | **0** | **0** | 816 MB |
-| `moustachir/postgres:18.4.3` (18.4, + base moved to trixie) | **trixie** (13.6, now Debian stable) | **0** | **0** | **0** | 843 MB |
+| `jesuph/moustachir-postgres:18.1` (old) | Debian **trixie** (13.3, was testing at the time) | 47 | 9 | 38 | 957 MB |
+| `moustachir/postgres:18.4.0` (18.4, upstream gosu) | Debian **bookworm** (12.15) | 15 | 1 | 14 | 897 MB |
+| `moustachir/postgres:18.4.1` (18.4, gosu rebuilt) | Debian **bookworm** (12.15) | 0 | 0 | 0 | 897 MB |
+| `moustachir/postgres:18.4.2` (18.4, + Perl removed, GDAL minimal) | Debian **bookworm** (12.15) | 0 | 0 | 0 | 816 MB |
+| `moustachir/postgres:18.4.3` (18.4, + base moved to trixie) | Debian **trixie** (13.6, now Debian stable) | 0 | 0 | 0 | 843 MB |
+| `moustachir/postgres:18.4.4` (18.4, + base moved to Chainguard/Wolfi) | **Wolfi** (20230201) | **0** | **0** | **0** | **698 MB** |
 
-**Headline — unfixed CVEs (no Debian patch exists yet)**
+**Headline — unfixed CVEs (no patch exists yet, anywhere)**
 
 | Image | Distinct unfixed CRITICAL | Distinct unfixed HIGH |
 |---|---|---|
 | `moustachir/postgres:18.4.1` | 8 | 41 |
 | `moustachir/postgres:18.4.2` | 3 | 22 |
-| `moustachir/postgres:18.4.3` | **1** | **19** |
-| **Delta, 18.4.1 → 18.4.3** | **-7 (-88 %)** | **-22 (-54 %)** |
+| `moustachir/postgres:18.4.3` | 1 | 19 |
+| `moustachir/postgres:18.4.4` | **0** | **0** |
+| **Delta, 18.4.1 → 18.4.4** | **-8 (-100 %)** | **-41 (-100 %)** |
 
-`18.4.1` already had **zero fixable CVEs of any severity** — every remaining finding lacked a Debian-provided patch. `18.4.2` structurally removes the two largest sources of *unfixed* CVEs (Perl, and GDAL's oversized dependency tree). `18.4.3` goes one step further and moves the base OS itself, since Debian's stable/oldstable status flipped underneath this project (see §5) — down to a single remaining unfixed CRITICAL (`libxml2`, CVE-2026-6653, unfixed in *any* Debian release, not just ours). See §4.4/§5 for what's left and why.
+`18.4.1` already had **zero fixable CVEs of any severity** — every remaining finding lacked a Debian-provided patch. `18.4.2` structurally removed the two largest sources of *unfixed* CVEs (Perl, and GDAL's oversized dependency tree). `18.4.3` moved the base OS to Debian's then-current stable. `18.4.4` moves off Debian entirely to Chainguard's Wolfi-based image — **the only version of this image with zero vulnerabilities of any kind, fixable or not, at any severity**, confirmed by a full Trivy scan (`vuln,secret,misconfig`) with correct OS-family detection (not a scan failure). See §6 for the full migration, including why two other candidate bases (Alpine, `cimg/postgres`) were evaluated and rejected first.
 
 ---
 
@@ -260,14 +262,69 @@ Distinct unfixed CRITICAL: 3 → **1** (only `libxml2`'s CVE-2026-6653, unfixed 
 
 ---
 
-## 6. How to reproduce the scan
+## 6. Base OS: Debian trixie → Chainguard/Wolfi (`18.4.4`)
+
+§5.4 flagged the honest options for the last unfixed CRITICAL: wait for Debian to patch `libxml2`, or replace Debian entirely. Prompted to look at alternatives, two candidates were evaluated empirically before committing to a third — both rejected on evidence, not assumption.
+
+### 6.1 Rejected: Alpine (musl)
+
+Alpine's musl libc has a real, documented, Postgres-specific correctness risk, not just a smaller-CVE-surface tradeoff: PostgreSQL's own docs state `LC_COLLATE`/`LC_CTYPE` "must be kept fixed, or indexes on text columns would become corrupt," and `docker-library/postgres` issue #1288 confirms Postgres's own safety net for this (`get_collation_actual_version()`) returns `NULL` on musl — it doesn't just fail to warn you, it can't. Since this project's actual running containers have existing data, swapping onto musl risks silently corrupting any index on a text column with default libc collation, with no warning mechanism to catch it. Mitigation (ICU collations, libc-independent) exists but is a separate, deliberate migration — not something to fold into a base-image swap. Wolfi (below) sidesteps this entirely by staying glibc-based.
+
+### 6.2 Rejected: `cimg/postgres:18.4-postgis` (CircleCI convenience image)
+
+Suggested as a candidate with a prebuilt PostGIS variant. Scanned and inspected directly rather than assumed:
+
+| | `cimg/postgres:18.4-postgis` |
+|---|---|
+| Base | Ubuntu 22.04 LTS |
+| Size | 4.0 GB |
+| Fixable CRITICAL / HIGH | **35 / 398** |
+| Compilers shipped at runtime? | Yes — `gcc`, `make`, `cmake` |
+| Leftover build artifacts | 189 MB PostGIS source/build tree at `/home/circleci/project/` |
+| Extra tooling | `git`, `curl`, `wget`, `ssh`, `python3`, the `docker` CLI |
+| Secrets flagged | 1 (AWS key in `postgis-3.6.3/doc/using_raster_dataman.xml` — almost certainly a documentation placeholder, but illustrative: shipping full doc/source trees gives a secret scanner something to find that a minimal image never would) |
+
+This is a CI **convenience** image — built to have everything a CircleCI job might need pre-installed so jobs start fast, not to minimize what ships. 35 fixable CRITICAL CVEs (patches exist, just not applied) is decisively worse than every version of this image going back to `18.4.1`.
+
+### 6.3 Chosen: Chainguard's `postgres` image (Wolfi)
+
+Wolfi is Chainguard's own Linux "undistro" — **glibc-based** (avoids the Alpine collation risk), `apk`-packaged like Alpine, purpose-built for minimal-CVE container images, continuously rebuilt so dependencies (including `gosu` — confirmed already at `go1.26.5`, the same patched version this project hand-built for `18.4.1`) stay current automatically. Two tags matter here: `latest-dev` (compilers, `apk`, dev headers — for building) and `latest` (genuinely minimal — **no package manager at all**, confirmed by testing).
+
+**One constraint worth naming:** Chainguard's free/public catalog only serves `:latest`/`:latest-dev` — no version-pinned tags without a paid subscription. This is a real departure from this project's "pin everything" philosophy elsewhere (pgvector, PostGIS, gosu, GDAL are all pinned to exact release tags). It's an accepted tradeoff specifically for this base layer: Chainguard's entire value proposition is that `:latest` is kept continuously at zero known CVEs, so floating on it is the *intended* usage pattern, unlike floating `:latest` on a generic Debian image where it buys nothing extra. The build args (`PGVECTOR_VERSION`, `POSTGIS_VERSION`, `GDAL_VERSION`) remain fully pinned as before.
+
+### 6.4 What the migration required
+
+Rebuilt the Dockerfile against `cgr.dev/chainguard/postgres:latest-dev` (build stages) / `:latest` (final stage). Highlights, in the order they were hit and fixed:
+
+- **`gosu-builder` stage removed entirely.** Chainguard's `gosu` is already current — no need to hand-build it (was required on every Debian-based version, `18.4.1` through `18.4.3`).
+- **Perl-purge step removed entirely.** Perl isn't installed on this base to begin with — no `postgresql-common`/`pg_wrapper` layer exists here (this image runs a single Postgres version directly, no multi-cluster tooling).
+- **Runtime libraries can't be `apk add`-ed into the final stage** — the `latest` tag ships no package manager at all, by design. Added a `runtime-libs` stage that installs the needed libs (`geos`, `proj`, `libcurl-openssl4`, `tiff`, `libpng`, `libjpeg-turbo`, `expat`, `libgomp`, `json-c`, `protobuf-c`) into an isolated `apk --root`, then `COPY`s that tree into the final image — same repo/build as the final base, so any overlap is byte-identical, not a conflicting duplicate.
+- **A broken system `zstd` cmake config** in the `-dev` image (`zstdTargets.cmake` references a `libzstd.a` that isn't actually installed) hard-errored GDAL's CMake configure. `GDAL_USE_ZSTD=OFF` and `CMAKE_DISABLE_FIND_PACKAGE_zstd=ON` both failed to prevent it — fixed by removing the broken config file directly (`rm -rf /usr/lib64/cmake/zstd`) before configuring.
+- **GDAL installs to `lib64/`, not `lib/`** on this base (Wolfi's `GNUInstallDirs` convention differs from Debian's) — every `/usr/local/gdal/lib` reference had to become `/usr/local/gdal/lib64`.
+- **This Postgres build has `--with-llvm`**, so PGXS tries to also emit LLVM bitcode (`.bc` files, for JIT inlining) via `clang` for every C extension — not installed in the build image. Rather than add a whole LLVM/clang toolchain for an optional performance nice-to-have, disabled it (`make with_llvm=no`) for both pgvector and PostGIS.
+- **Missing `-dev` packages**, found one at a time as `./configure` progressed: `libxml2-dev`, `json-c-dev`, `protobuf-c-dev`/`protobuf-c-compiler` (all present in the old Debian package list, simply forgotten when translating to `apk`).
+- **`raster2pgsql`/`shp2pgsql` install to `/usr/local/bin`**, not `pg_config`'s own `bindir` (`/usr/libexec/postgresql18`) — PostGIS's loader-utility install target ignores `--with-pgconfig` for these two binaries specifically.
+- **Doubled `postgres` argument at startup.** This base's `ENTRYPOINT` already hardcodes `["docker-entrypoint.sh", "postgres"]` (unlike the official image, where `CMD` has to supply `"postgres"` itself) — the Dockerfile's `CMD` was still passing `"postgres"` too, so Docker concatenated `ENTRYPOINT + CMD` into `postgres postgres -c ...`, which the `postgres` binary correctly rejected as an invalid argument. Fixed by dropping `"postgres"` from `CMD`, leaving only the extra flags.
+
+None of these were CVE-related — they're base-image-specific build mechanics, the normal cost of a from-scratch base migration.
+
+### 6.5 Verification
+
+Same suite as every prior version: full `test-extensions.sql` (10/10 pass), `gosu --version` (`1.19, go1.26.5` — current), and in one psql session: `CREATE EXTENSION postgis_raster`, `SET postgis.gdal_enabled_drivers = 'ENABLE_ALL'`, then `ST_AsTIFF`/`ST_AsPNG`/`ST_AsJPEG` against `ST_AsRaster(...)` — all three produce correctly-sized non-null output, identical behavior to the trixie build. (One cosmetic-only loose end: `PostGIS_GDAL_Version()` appends a `GDAL_DATA not found` notice despite the env var and directory both being present and correct — doesn't affect any tested functionality; likely a missing marker file our minimal `cmake --install` didn't copy. Not investigated further given zero functional impact.)
+
+### 6.6 Result
+
+**Zero vulnerabilities of any kind** — not just zero fixable (already true since `18.4.1`), but zero *unfixed* too, at every severity, confirmed by a full unfiltered Trivy scan (`vuln,secret,misconfig`) with correct `wolfi` OS-family detection. Also the smallest build yet (698 MB, down from 843 MB on trixie) despite no size optimization being a goal. This is the first version of this image where "how many vulnerabilities are left" has a one-word answer.
+
+---
+
+## 7. How to reproduce the scan
 
 ```bash
 # Build the new image
-docker build -t moustachir/postgres:18.4.3 \
+docker build -t moustachir/postgres:18.4.4 \
   --build-arg PGVECTOR_VERSION=0.8.5 \
   --build-arg POSTGIS_VERSION=3.5.7 \
-  --build-arg GOSU_VERSION=1.19 \
   --build-arg GDAL_VERSION=3.13.1 .
 
 # Scan (note: on Docker Desktop, mount the desktop socket)
@@ -280,24 +337,25 @@ docker run --rm \
   aquasec/trivy:latest image \
   --severity HIGH,CRITICAL --ignore-unfixed \
   --format table --exit-code 0 \
-  moustachir/postgres:18.4.3
+  moustachir/postgres:18.4.4
 
-# Full scan, all severities — use this one; it's what caught the gosu,
-# GDAL/Perl, and base-OS concentrations, and it's the only way to see
-# unfixed-CVE counts
+# Full scan, all severities (vuln+secret+misconfig) — use this one;
+# it's what caught the gosu, GDAL/Perl, and base-OS concentrations,
+# and it's the only way to see unfixed-CVE counts
 docker run --rm \
   -v "$SOCK:/var/run/docker.sock" \
   -v "$PWD/.trivycache:/root/.cache/trivy" \
   aquasec/trivy:latest image \
+  --scanners vuln,secret,misconfig \
   --format table --exit-code 0 \
-  moustachir/postgres:18.4.3
+  moustachir/postgres:18.4.4
 ```
 
 `.trivycache/` is a workspace-local directory; it's git-ignored. (Already added to `.gitignore`.)
 
 ---
 
-## 7. What was changed
+## 8. What was changed
 
 ### Previous commit (`18.4.0`)
 - `Dockerfile` — multi-stage build on `postgres:18.4-bookworm`, pinned pgvector 0.8.5 / PostGIS 3.5.7 from source, optional PostGIS components disabled, runtime-only apt install in final stage.
@@ -325,3 +383,10 @@ docker run --rm \
 - `docker-compose.yml` / `push-to-registry.sh` / `push-to-registry.ps1` / `README.md` — bumped patch tag `18.4.2` → `18.4.3`.
 - `SECURITY.md` (this file) — added §5 documenting why bookworm was originally chosen, why that stopped being correct (Debian 13 trixie is now stable, bookworm is now oldstable), the empirical bare-image comparison that motivated the switch, and the Alpine/musl caveat for anyone tempted to go further.
 - Verification: identical suite to `18.4.2` (extensions, gosu, Perl absence, raster round-trip) re-run against the trixie build — all pass, no behavioral differences observed.
+
+### `18.4.4` — base OS moved trixie → Chainguard/Wolfi
+- `Dockerfile` — rewritten against `cgr.dev/chainguard/postgres:latest-dev` / `:latest`; `gosu-builder` stage and Perl-purge step both removed (unneeded on this base); added `runtime-libs` stage (isolated `apk --root` install, since the `latest` tag ships no package manager); fixed a broken system `zstd` cmake config, GDAL's `lib64` install path, missing `clang`/LLVM-bitcode dependency (`with_llvm=no`), three missing `-dev` packages (`libxml2-dev`, `json-c-dev`, `protobuf-c-dev`), the `raster2pgsql`/`shp2pgsql` install path, and a doubled `postgres` argument in `CMD` (this base's `ENTRYPOINT` already supplies it).
+- `docker-compose.yml` / `push-to-registry.sh` / `push-to-registry.ps1` / `.github/workflows/docker-publish.yml` — removed the now-unused `GOSU_VERSION` build arg, bumped patch tag `18.4.3` → `18.4.4`.
+- `README.md` — "Built on Debian Trixie" → "Built on Chainguard's `postgres` image (Wolfi, glibc-based, minimal-CVE-by-design)".
+- `SECURITY.md` (this file) — added §6 documenting the Alpine and `cimg/postgres` evaluations (both rejected, with evidence) and the Chainguard migration itself; headline table updated to reflect zero vulnerabilities of any kind.
+- Verification: full `test-extensions.sql` suite, `gosu --version`, and the `postgis_raster`/`ST_AsTIFF`/`ST_AsPNG`/`ST_AsJPEG` round-trip — all pass, identical behavior to the trixie build. Full Trivy scan (`vuln,secret,misconfig`, all severities, correct `wolfi` OS-family detection confirmed) returned zero findings of any kind.

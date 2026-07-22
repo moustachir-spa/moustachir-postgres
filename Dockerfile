@@ -99,7 +99,8 @@ RUN set -eux; \
     apk add --no-cache --root /rt --initdb \
         --repository https://apk.cgr.dev/chainguard \
         --keys-dir /etc/apk/keys \
-        geos-3.13 proj libcurl-openssl4 tiff libpng libjpeg-turbo expat libgomp
+        geos-3.13 proj libcurl-openssl4 tiff libpng libjpeg-turbo expat libgomp \
+        json-c protobuf-c
 
 ##############################################
 # Build pgvector + PostGIS
@@ -110,7 +111,7 @@ ARG PGVECTOR_VERSION=0.8.5
 ARG POSTGIS_VERSION=3.5.7
 
 COPY --from=gdal-builder /usr/local/gdal /usr/local/gdal
-RUN echo "/usr/local/gdal/lib" > /etc/ld.so.conf.d/gdal.conf
+RUN echo "/usr/local/gdal/lib64" > /etc/ld.so.conf.d/gdal.conf
 
 RUN apk update && apk add --no-cache \
         # PostGIS build deps (dev headers only needed at build time)
@@ -122,6 +123,10 @@ RUN apk update && apk add --no-cache \
         expat-dev \
         sqlite-dev \
         curl-dev \
+        libxml2-dev \
+        json-c-dev \
+        protobuf-c-dev \
+        protobuf-c-compiler \
         postgresql-18-dev \
         # Build tools
         build-base \
@@ -140,12 +145,16 @@ RUN apk update && apk add --no-cache \
 ##############################################
 # Build pgvector (pinned tag)
 ##############################################
+# with_llvm=no: this image's postgres was built --with-llvm, so PGXS
+# also tries to emit LLVM bitcode (.bc) via clang for JIT inlining —
+# a nice-to-have, not required for functionality. Skip it rather than
+# add a whole clang/LLVM toolchain just to produce it.
 RUN set -eux; \
     cd /tmp; \
     git clone --depth 1 --branch v${PGVECTOR_VERSION} https://github.com/pgvector/pgvector.git; \
     cd pgvector; \
-    make; \
-    make install; \
+    make with_llvm=no; \
+    make install with_llvm=no; \
     rm -rf /tmp/pgvector
 
 ##############################################
@@ -170,8 +179,8 @@ RUN set -eux; \
         --without-address-standardizer \
         --without-tiger-geocoder \
     ; \
-    make -j"$(nproc)"; \
-    make install; \
+    make -j"$(nproc)" with_llvm=no; \
+    make install with_llvm=no; \
     rm -rf /tmp/postgis
 
 ##############################################
@@ -196,17 +205,18 @@ RUN ldconfig
 
 # Our minimal-driver GDAL build (see gdal-builder stage) — library +
 # data files only, no headers/CLI apps/cmake exports needed at runtime.
-COPY --from=gdal-builder /usr/local/gdal/lib/ /usr/local/gdal/lib/
+COPY --from=gdal-builder /usr/local/gdal/lib64/ /usr/local/gdal/lib64/
 COPY --from=gdal-builder /usr/local/gdal/share/gdal/ /usr/local/gdal/share/gdal/
-RUN echo "/usr/local/gdal/lib" > /etc/ld.so.conf.d/gdal.conf && ldconfig
+RUN echo "/usr/local/gdal/lib64" > /etc/ld.so.conf.d/gdal.conf && ldconfig
 ENV GDAL_DATA=/usr/local/gdal/share/gdal
 
 # Copy compiled extension files from the builder stage — pgvector +
 # PostGIS shared libs, control/sql files, and the raster2pgsql/
-# shp2pgsql binaries (pg_config's bindir on this image).
+# shp2pgsql loader binaries (PostGIS installs these to /usr/local/bin
+# regardless of --with-pgconfig's own bindir).
 COPY --from=builder /usr/lib/postgresql18/ /usr/lib/postgresql18/
 COPY --from=builder /usr/share/postgresql18/ /usr/share/postgresql18/
-COPY --from=builder /usr/libexec/postgresql18/raster2pgsql /usr/libexec/postgresql18/shp2pgsql /usr/libexec/postgresql18/
+COPY --from=builder /usr/local/bin/raster2pgsql /usr/local/bin/shp2pgsql /usr/local/bin/
 
 ##############################################
 # 2. Copy initialization scripts
@@ -226,4 +236,7 @@ EXPOSE 5432
 #    pg_stat_statements needs to be loaded
 #    via shared_preload_libraries
 ##############################################
-CMD ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
+# Base image's ENTRYPOINT already bakes in "postgres" as the fixed
+# first arg (unlike the official docker-library image, where CMD has
+# to supply it) — CMD here only needs the extra flags.
+CMD ["-c", "shared_preload_libraries=pg_stat_statements"]

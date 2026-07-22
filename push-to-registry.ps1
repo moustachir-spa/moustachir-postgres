@@ -35,15 +35,14 @@ switch ($choice) {
         docker build `
             --build-arg PGVECTOR_VERSION=0.8.5 `
             --build-arg POSTGIS_VERSION=3.5.7 `
-            --build-arg GOSU_VERSION=1.19 `
             --build-arg GDAL_VERSION=3.13.1 `
-            -t "$dockerhub_user/moustachir-postgres:18.4.3" `
+            -t "$dockerhub_user/moustachir-postgres:18.4.4" `
             -t "$dockerhub_user/moustachir-postgres:18.4" `
             -t "$dockerhub_user/moustachir-postgres:latest" `
             .
         
         Write-Host "Pushing to Docker Hub..." -ForegroundColor Yellow
-        docker push "$dockerhub_user/moustachir-postgres:18.4.3"
+        docker push "$dockerhub_user/moustachir-postgres:18.4.4"
         docker push "$dockerhub_user/moustachir-postgres:18.4"
         docker push "$dockerhub_user/moustachir-postgres:latest"
         
@@ -84,15 +83,14 @@ switch ($choice) {
             docker build `
                 --build-arg PGVECTOR_VERSION=0.8.5 `
                 --build-arg POSTGIS_VERSION=3.5.7 `
-                --build-arg GOSU_VERSION=1.19 `
                 --build-arg GDAL_VERSION=3.13.1 `
-                -t "ghcr.io/$github_user/moustachir-postgres:18.4.3" `
+                -t "ghcr.io/$github_user/moustachir-postgres:18.4.4" `
                 -t "ghcr.io/$github_user/moustachir-postgres:18.4" `
                 -t "ghcr.io/$github_user/moustachir-postgres:latest" `
                 .
             
             Write-Host "Pushing to GitHub Container Registry..." -ForegroundColor Yellow
-            docker push "ghcr.io/$github_user/moustachir-postgres:18.4.3"
+            docker push "ghcr.io/$github_user/moustachir-postgres:18.4.4"
             docker push "ghcr.io/$github_user/moustachir-postgres:18.4"
             docker push "ghcr.io/$github_user/moustachir-postgres:latest"
             
